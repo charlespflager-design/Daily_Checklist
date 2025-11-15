@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Daily Checklist</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 600px;
+      margin: 30px auto;
+      padding: 0 15px;
+      background-color: #ffffff;
+      color: #000000;
+      transition: background-color 0.3s, color 0.3s;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 5px;
+    }
+    #date-display {
+      text-align: center;
+      font-size: 18px;
+      margin-bottom: 5px;
+      color: #444;
+    }
+    #completed-count,
+    #streak-display {
+      text-align: center;
+      font-size: 16px;
+      margin-bottom: 5px;
+      color: #666;
+    }
+    #top-controls {
+      display: flex;
+      justify-content: center;
+      margin: 10px 0 20px 0;
+    }
+    #top-controls button {
+      padding: 6px 10px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    #task-input-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+    #new-task {
+      flex: 1;
+      padding: 8px;
+      font-size: 16px;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+    }
+    button {
+      padding: 6px 10px;
+      font-size: 14px;
+      cursor: pointer;
+      border-radius: 3px;
+      border: 1px solid #ccc;
+      background: #f5f5f5;
+    }
+    #controls {
+      display: flex;
+      gap: 10px;
+      margin: 15px 0;
+    }
+    ul {
+      list-style: none;
+      padding-left: 0;
+    }
+    li {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 0;
+      border-bottom: 1px solid #eee;
+    }
+    .task-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+    }
+    .task-text {
+      flex: 1;
+      word-break: break-word;
+    }
+    .delete-btn {
+      background: #f5c6cb;
+      border: 1px solid #f1b0b7;
+    }
+    .move-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      margin-right: 6px;
+    }
+    .move-btn {
+      padding: 2px 6px;
+      font-size: 12px;
+      line-height: 1;
+    }
+
+    /* --- DARK MODE --- */
+    body.dark-mode {
+      background-color: #121212;
+      color: #eeeeee;
+    }
+    body.dark-mode #date-display {
+      color: #dddddd;
+    }
+    body.dark-mode #completed-count,
+    body.dark-mode #streak-display {
+      color: #cccccc;
+    }
+    body.dark-mode #new-task {
+      background-color: #333333;
+      color: #ffffff;
+      border-color: #555555;
+    }
+    body.dark-mode button {
+      background-color: #333333;
+      color: #ffffff;
+      border-color: #555555;
+    }
+    body.dark-mode li {
+      border-bottom-color: #333333;
+    }
+    body.dark-mode .delete-btn {
+      background-color: #80343c;
+      border-color: #a94b55;
+    }
+  </style>
+</head>
+<body>
+  <h1>Daily Checklist</h1>
+
+  <div id="date-display"></div>
+  <div id="completed-count"></div>
+  <div id="streak-display"></div>
+
+  <div id="top-controls">
+    <button id="dark-mode-toggle">Toggle Dark Mode</button>
+  </div>
+
+  <div id="task-input-row">
+    <input
+      type="text"
+      id="new-task"
+      placeholder="Type a task and press Add or Enter"
+    />
+    <button id="add-task-btn">Add Task</button>
+  </div>
+
+  <div id="controls">
+    <button id="reset-day-btn">Reset Day (Uncheck All)</button>
+    <button id="clear-all-btn">Clear All Tasks</button>
+  </div>
+
+  <ul id="task-list"></ul>
+
+  <script>
+    // --- Keys for localStorage ---
+    const STORAGE_KEY = "dailyChecklistTasks";
+    const STREAK_COUNT_KEY = "dailyChecklistStreakCount";
+    const STREAK_DATE_KEY = "dailyChecklistLastStreakDay";
+    const LONGEST_STREAK_KEY = "dailyChecklistLongestStreak";
+    const DARK_MODE_KEY = "dailyChecklistDarkMode";
+
+    // --- DOM elements ---
+    const newTaskInput = document.getElementById("new-task");
+    const addTaskBtn = document.getElementById("add-task-btn");
+    const resetDayBtn = document.getElementById("reset-day-btn");
+    const clearAllBtn = document.getElementById("clear-all-btn");
+    const taskList = document.getElementById("task-list");
+
+    const dateDisplay = document.getElementById("date-display");
+    const completedCount = document.getElementById("completed-count");
+    const streakDisplay = document.getElementById("streak-display");
+    const darkModeToggleBtn = document.getElementById("dark-mode-toggle");
+
+    let tasks = [];
+    let streakCount = 0;
+    let longestStreak = 0;
+    let lastStreakDay = null;
+
+    // --- Utility: today as YYYY-MM-DD ---
+    function getTodayString() {
+      return new Date().toISOString().slice(0, 10);
+    }
+
+    // --- Display today's date ---
+    function updateDate() {
+      const today = new Date();
+      const options = {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      };
+      dateDisplay.textContent = today.toLocaleDateString(undefined, options);
+    }
+
+    // --- Update completed count text ---
+    function updateCompletedCount() {
+      const completed = tasks.filter((t) => t.completed).length;
+      const total = tasks.length;
+      completedCount.textContent = `${completed} of ${total} tasks completed`;
+    }
+
+    // --- Load streak data ---
+    function loadStreak() {
+      const savedCount = localStorage.getItem(STREAK_COUNT_KEY);
+      const savedDate = localStorage.getItem(STREAK_DATE_KEY);
+      const savedLongest = localStorage.getItem(LONGEST_STREAK_KEY);
+
+      streakCount = savedCount ? parseInt(savedCount, 10) : 0;
+      longestStreak = savedLongest ? parseInt(savedLongest, 10) : 0;
+      lastStreakDay = savedDate || null;
+      updateStreakDisplay();
+    }
+
+    // --- Update streak display text ---
+    function updateStreakDisplay() {
+      streakDisplay.textContent = `Completed days (streak): ${streakCount} (best: ${longestStreak})`;
+    }
+
+    // --- Check if today should increment streak (all tasks done + first reset today) ---
+    function maybeIncrementStreakOnReset() {
+      const total = tasks.length;
+      if (total === 0) return false; // no tasks, no streak
+
+      const allCompleted = tasks.every((t) => t.completed);
+      if (!allCompleted) return false; // only count fully completed days
+
+      const todayStr = getTodayString();
+      if (lastStreakDay === todayStr) {
+        // Already counted today
+        return false;
+      }
+
+      streakCount += 1;
+      lastStreakDay = todayStr;
+
+      if (streakCount > longestStreak) {
+        longestStreak = streakCount;
+      }
+
+      localStorage.setItem(STREAK_COUNT_KEY, streakCount.toString());
+      localStorage.setItem(STREAK_DATE_KEY, lastStreakDay);
+      localStorage.setItem(LONGEST_STREAK_KEY, longestStreak.toString());
+      updateStreakDisplay();
+
+      return true;
+    }
+
+    // --- Load tasks from localStorage ---
+    function loadTasks() {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      tasks = saved ? JSON.parse(saved) : [];
+      renderTasks();
+    }
+
+    // --- Save tasks ---
+    function saveTasks() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+    }
+
+    // --- Swap tasks for reordering ---
+    function swapTasks(i, j) {
+      const temp = tasks[i];
+      tasks[i] = tasks[j];
+      tasks[j] = temp;
+    }
+
+    // --- Render all tasks ---
+    function renderTasks() {
+      taskList.innerHTML = "";
+      tasks.forEach((task, index) => {
+        const li = document.createElement("li");
+
+        // Move buttons
+        const moveDiv = document.createElement("div");
+        moveDiv.className = "move-buttons";
+
+        const upBtn = document.createElement("button");
+        upBtn.textContent = "▲";
+        upBtn.className = "move-btn";
+        upBtn.disabled = index === 0;
+        upBtn.addEventListener("click", () => {
+          if (index > 0) {
+            swapTasks(index, index - 1);
+            saveTasks();
+            renderTasks();
+          }
+        });
+
+        const downBtn = document.createElement("button");
+        downBtn.textContent = "▼";
+        downBtn.className = "move-btn";
+        downBtn.disabled = index === tasks.length - 1;
+        downBtn.addEventListener("click", () => {
+          if (index < tasks.length - 1) {
+            swapTasks(index, index + 1);
+            saveTasks();
+            renderTasks();
+          }
+        });
+
+        moveDiv.appendChild(upBtn);
+        moveDiv.appendChild(downBtn);
+
+        const left = document.createElement("div");
+        left.className = "task-left";
+
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.checked = task.completed;
+        checkbox.addEventListener("change", () => {
+          tasks[index].completed = checkbox.checked;
+          saveTasks();
+          updateCompletedCount();
+        });
+
+        const span = document.createElement("span");
+        span.className = "task-text";
+        span.textContent = task.text;
+
+        left.appendChild(checkbox);
+        left.appendChild(span);
+
+        const deleteBtn = document.createElement("button");
+        deleteBtn.textContent = "Delete";
+        deleteBtn.className = "delete-btn";
+        deleteBtn.addEventListener("click", () => {
+          tasks.splice(index, 1);
+          saveTasks();
+          renderTasks();
+        });
+
+        li.appendChild(moveDiv);
+        li.appendChild(left);
+        li.appendChild(deleteBtn);
+        taskList.appendChild(li);
+      });
+
+      updateCompletedCount();
+    }
+
+    // --- Add a new task ---
+    function addTask() {
+      const text = newTaskInput.value.trim();
+      if (!text) return;
+      tasks.push({ text, completed: false });
+      newTaskInput.value = "";
+      saveTasks();
+      renderTasks();
+      newTaskInput.focus();
+    }
+
+    // --- Reset all checkboxes (for a new day) ---
+    function resetDay() {
+      const totalBefore = tasks.length;
+      const streakIncremented = maybeIncrementStreakOnReset();
+
+      if (streakIncremented) {
+        alert(
+          `Nice work. You completed all ${totalBefore} task(s) today.\n` +
+          `Current streak: ${streakCount} day(s).\n` +
+          `Best streak: ${longestStreak} day(s).`
+        );
+      }
+
+      // Now clear all checkmarks
+      tasks = tasks.map((t) => ({ ...t, completed: false }));
+      saveTasks();
+      renderTasks();
+    }
+
+    // --- Clear all tasks completely ---
+    function clearAllTasks() {
+      if (!confirm("Delete ALL tasks? This cannot be undone.")) return;
+      tasks = [];
+      saveTasks();
+      renderTasks();
+    }
+
+    // --- Dark mode handling ---
+    function applyDarkModeFromStorage() {
+      const stored = localStorage.getItem(DARK_MODE_KEY);
+      const isDark = stored === "true";
+      document.body.classList.toggle("dark-mode", isDark);
+      darkModeToggleBtn.textContent = isDark
+        ? "Switch to Light Mode"
+        : "Toggle Dark Mode";
+    }
+
+    function toggleDarkMode() {
+      const isDark = !document.body.classList.contains("dark-mode");
+      document.body.classList.toggle("dark-mode", isDark);
+      localStorage.setItem(DARK_MODE_KEY, isDark ? "true" : "false");
+      darkModeToggleBtn.textContent = isDark
+        ? "Switch to Light Mode"
+        : "Toggle Dark Mode";
+    }
+
+    // --- Event listeners ---
+    addTaskBtn.addEventListener("click", addTask);
+    newTaskInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") addTask();
+    });
+    resetDayBtn.addEventListener("click", resetDay);
+    clearAllBtn.addEventListener("click", clearAllTasks);
+    darkModeToggleBtn.addEventListener("click", toggleDarkMode);
+
+    // --- Initialize ---
+    updateDate();
+    loadTasks();
+    loadStreak();
+    applyDarkModeFromStorage();
+    newTaskInput.focus();
+  </script>
+</body>
+</html>
